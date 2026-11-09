@@ -109,7 +109,11 @@ class Launcher:
         half_h = h / 2
         line_h = self.font.get_linesize()
         marker = self.font.render("> ", True, TEXT_COLOR)
-        text_x = MARGIN + marker.get_width()
+        marker_x = MARGIN + line_h // 2  # room for the dashed guide line
+        text_x = marker_x + marker.get_width()
+
+        def fade(centre):
+            return 1 - abs(centre - half_h) / half_h
 
         if not self.programs:
             msg = f"No programs found in {self.config['script_dir']}"
@@ -119,10 +123,25 @@ class Launcher:
             return
 
         self.screen.set_clip(pygame.Rect(0, 0, w // 2, h))
-        self.screen.blit(marker, (MARGIN, half_h - line_h / 2))
+
+        # Dashed vertical guide, one dash per row slot over the full height.
+        # It scrolls with the list and shares its fade, so the fade stays
+        # visible even when there are only a few programs.
+        dash = pygame.Surface((max(2, line_h // 16), round(line_h * 0.7)))
+        dash.fill(TEXT_COLOR)
+        offset = self.scroll % 1
+        rows = int(half_h // line_h) + 2
+        for k in range(-rows, rows + 1):
+            centre = half_h + (k - offset) * line_h
+            alpha = fade(centre)
+            if alpha > 0:
+                dash.set_alpha(round(255 * alpha))
+                self.screen.blit(dash, (MARGIN, centre - dash.get_height() / 2))
+
+        self.screen.blit(marker, (marker_x, half_h - line_h / 2))
         for i, (name, _) in enumerate(self.programs):
             centre = half_h + (i - self.scroll) * line_h
-            alpha = 1 - abs(centre - half_h) / half_h
+            alpha = fade(centre)
             if alpha <= 0:
                 continue
             surf = self.font.render(name, True, TEXT_COLOR)
