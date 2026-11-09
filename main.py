@@ -27,6 +27,7 @@ def load_config():
         "script_dir": os.path.normpath(script_dir),
         "python": sec.get("python", "") or sys.executable,
         "font_size": int(sec.get("font_size", 16)),
+        "error_font_size": int(sec.get("error_font_size", 16)),
         "scroll_speed": float(sec.get("scroll_speed", 10)),
     }
 

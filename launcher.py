@@ -10,7 +10,9 @@ from program import Program, ProgramResult, find_programs, run_program
 
 BG_COLOR = (240, 240, 240)
 TEXT_COLOR = (10, 10, 10)
+ERROR_COLOR = (139, 0, 0)  # dark red
 MARGIN = 40
+ERROR_BOX_FRACTION = 1 / 3  # error box: top third of the right half
 SELECTION_ALPHA = 40  # opacity (0-255) of the box behind the selection
 DEPTH = 0.15  # how quickly rows shrink with distance from the selection
 FADE_TIME = 0.4  # seconds to fade to black before launching / back after
@@ -90,11 +92,12 @@ class Launcher:
         self.blackout_target = 0.0  # update() moves blackout towards this
         self.clock = pygame.time.Clock()
         self.result_cache: tuple[ProgramResult, list[str]] | None = None
-        self.info_cache: dict[Program, list[str]] = {}  # wrapped descriptions
+        self.info_cache: dict[tuple[Program, int], list[str]] = {}  # wrapped descriptions
 
     # Created in open_display() and recreated after every launched program.
     screen: pygame.Surface
     font: pygame.font.Font
+    error_font: pygame.font.Font
 
     # -- display lifecycle -------------------------------------------------
 
@@ -109,6 +112,7 @@ class Launcher:
         pygame.display.set_caption("Launcher")
         pygame.mouse.set_visible(False)
         self.font = pygame.font.Font(None, self.config["font_size"])
+        self.error_font = pygame.font.Font(None, self.config["error_font_size"])
         self.name_surfaces.clear()
         self.result_cache = None  # depends on the font and screen size
         self.info_cache.clear()
@@ -267,60 +271,70 @@ class Launcher:
             self.screen.blit(surf, (text_x, centre - surf.get_height() / 2))
         self.screen.set_clip(None)
 
+    def draw_lines(self, lines, font, color, y):
+        """Draw lines of text in the right half, starting at y."""
+        x = self.screen.get_width() // 2 + MARGIN
+        for line in lines:
+            self.screen.blit(font.render(line, True, color), (x, y))
+            y += font.get_linesize()
+
+    def error_box(self):
+        """(top, bottom) of the error box: the top of the right half."""
+        h = self.screen.get_height()
+        return MARGIN, h * ERROR_BOX_FRACTION - MARGIN / 2
+
     def result_lines(self, result: ProgramResult):
-        """Wrapped lines for the result panel, trimmed to fit the screen.
+        """Wrapped lines for the error box, trimmed to fit it.
         Computed once per result rather than every frame."""
         if self.result_cache is not None and self.result_cache[0] is result:
             return self.result_cache[1]
-        w, h = self.screen.get_size()
-        width = w // 2 - 2 * MARGIN
-        head = wrap_text(self.font, result.summary, width) + [""]
-        error = wrap_text(self.font, result.error or "", width)
-        tail = [""] + wrap_text(self.font, "Press any button to continue", width)
-        room = (h - 2 * MARGIN) // self.font.get_linesize() - len(head) - len(tail)
+        font = self.error_font
+        width = self.screen.get_width() // 2 - 2 * MARGIN
+        top, bottom = self.error_box()
+        head = wrap_text(font, result.summary, width)
+        error = wrap_text(font, result.error or "", width)
+        tail = wrap_text(font, "Press any button to continue", width)
+        room = int((bottom - top) // font.get_linesize()) - len(head) - len(tail)
         # Keep the end of the error output, which is the most relevant.
         lines = head + fit_lines(error, room, keep_end=True) + tail
         self.result_cache = (result, lines)
         return lines
 
     def draw_result(self, result: ProgramResult):
-        """Exit code and error output in the right half."""
-        w, h = self.screen.get_size()
-        lines = self.result_lines(result)
-        line_h = self.font.get_linesize()
-        y = max(MARGIN, (h - len(lines) * line_h) / 2)
-        for line in lines:
-            self.screen.blit(self.font.render(line, True, TEXT_COLOR), (w // 2 + MARGIN, y))
-            y += line_h
+        """Exit code and error output in dark red, in the error box above
+        the info panel."""
+        self.draw_lines(self.result_lines(result), self.error_font, ERROR_COLOR,
+                        self.error_box()[0])
 
-    def info_lines(self, program: Program):
+    def info_lines(self, program: Program, height):
         """Wrapped description (README.md or "Play <name>") for the info
-        panel, trimmed to fit the screen. Cached per program."""
-        lines = self.info_cache.get(program)
+        panel, trimmed to fit height pixels. Cached per program and height."""
+        key = (program, int(height))
+        lines = self.info_cache.get(key)
         if lines is None:
-            w, h = self.screen.get_size()
-            room = (h - 2 * MARGIN) // self.font.get_linesize()
-            lines = fit_lines(wrap_text(self.font, program.description, w // 2 - 2 * MARGIN), room)
-            self.info_cache[program] = lines
+            width = self.screen.get_width() // 2 - 2 * MARGIN
+            room = int(height // self.font.get_linesize())
+            lines = fit_lines(wrap_text(self.font, program.description, width), room)
+            self.info_cache[key] = lines
         return lines
 
     def draw_info(self, program: Program):
-        """Description of the selected program in the right half."""
-        w, h = self.screen.get_size()
-        lines = self.info_lines(program)
-        line_h = self.font.get_linesize()
-        y = max(MARGIN, (h - len(lines) * line_h) / 2)
-        for line in lines:
-            self.screen.blit(self.font.render(line, True, TEXT_COLOR), (w // 2 + MARGIN, y))
-            y += line_h
+        """Description of the selected program in the right half, centred on
+        the selection row. While an error is shown, it is limited to the
+        space below the error box (mirrored above the centre)."""
+        h = self.screen.get_height()
+        top = MARGIN if self.result is None else self.error_box()[1] + MARGIN / 2
+        lines = self.info_lines(program, h - 2 * top)
+        y = max(top, (h - len(lines) * self.font.get_linesize()) / 2)
+        self.draw_lines(lines, self.font, TEXT_COLOR, y)
 
     def draw(self):
         self.screen.fill(BG_COLOR)
         self.draw_list()
+        if self.programs:
+            self.draw_info(self.programs[self.selected])
         if self.result is not None:
             self.draw_result(self.result)
-        elif self.programs:
-            self.draw_info(self.programs[self.selected])
         if self.blackout > 0:
             overlay = pygame.Surface(self.screen.get_size())  # starts black
             overlay.set_alpha(round(255 * self.blackout))

@@ -41,7 +41,7 @@ class Program:
 
     @property
     def description(self) -> str:
-        return self.readme or f"Play {self.name}"
+        return self.readme or f"Play \"{self.name}\""
 
 
 def read_readme(folder):
