@@ -3,7 +3,7 @@
 import pygame
 
 from controls import DOWN, SELECT, UP, Input, is_quit
-from program import find_programs, run_program
+from program import ProgramResult, find_programs, run_program
 
 BG_COLOR = (240, 240, 240)
 TEXT_COLOR = (10, 10, 10)
@@ -40,7 +40,7 @@ class Launcher:
         self.programs = find_programs(config["script_dir"])
         self.selected = 0
         self.scroll = 0.0  # list position in rows; animates towards selected
-        self.result = None  # (name, exit_code, error_text) after a failed run
+        self.result: ProgramResult | None = None  # set after a failed run
         self.input = Input()
 
     # Created in open_display() and recreated after every launched program.
@@ -73,13 +73,13 @@ class Launcher:
             return
         name, script = self.programs[self.selected]
         self.close_display()
-        code, error = run_program(self.config["python"], script)
+        result = run_program(name, self.config["python"], script)
         self.open_display()
         self.programs = find_programs(self.config["script_dir"])
         self.selected = min(self.selected, max(len(self.programs) - 1, 0))
         self.scroll = float(self.selected)
-        if error is not None:
-            self.result = (name, code, error)
+        if result.failed:
+            self.result = result
 
     def act(self, action):
         if self.result is not None:
@@ -130,13 +130,12 @@ class Launcher:
             self.screen.blit(surf, (text_x, centre - line_h / 2))
         self.screen.set_clip(None)
 
-    def draw_result(self):
+    def draw_result(self, result: ProgramResult):
         """Exit code and error output in the right half."""
-        name, code, error = self.result
         w, h = self.screen.get_size()
         width = w // 2 - 2 * MARGIN
-        lines = wrap_text(self.font, f"'{name}' exited with code {code}", width)
-        lines += [""] + wrap_text(self.font, error, width)
+        lines = wrap_text(self.font, result.summary, width)
+        lines += [""] + wrap_text(self.font, result.error or "", width)
         lines += [""] + wrap_text(self.font, "Press any button to continue", width)
         line_h = self.font.get_linesize()
         y = max(MARGIN, (h - len(lines) * line_h) / 2)
@@ -148,7 +147,7 @@ class Launcher:
         self.screen.fill(BG_COLOR)
         self.draw_list()
         if self.result is not None:
-            self.draw_result()
+            self.draw_result(self.result)
         pygame.display.flip()
 
     # -- main loop ---------------------------------------------------------

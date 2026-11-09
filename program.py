@@ -3,8 +3,28 @@
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 
 ERROR_TAIL_LINES = 15
+
+
+@dataclass(frozen=True)
+class ProgramResult:
+    """Outcome of running a program."""
+
+    name: str
+    exit_code: int | None  # None if the program could not be started
+    error: str | None = None  # error output (tail of stderr) if it failed
+
+    @property
+    def failed(self) -> bool:
+        return self.error is not None
+
+    @property
+    def summary(self) -> str:
+        if self.exit_code is None:
+            return f"'{self.name}' could not be started"
+        return f"'{self.name}' exited with code {self.exit_code}"
 
 
 def find_programs(script_dir):
@@ -26,19 +46,19 @@ def find_programs(script_dir):
     return programs
 
 
-def run_program(python, script):
-    """Run a script to completion. Returns (exit_code, error_text or None)."""
+def run_program(name, python, script) -> ProgramResult:
+    """Run a script to completion and report how it ended."""
     try:
         proc = subprocess.run([python, script], cwd=os.path.dirname(script),
                               stderr=subprocess.PIPE, check=False)
     except OSError as exc:
-        return None, f"Could not start program: {exc}"
+        return ProgramResult(name, None, f"Could not start program: {exc}")
     stderr = proc.stderr.decode(errors="replace")
     if stderr:
         sys.stderr.write(stderr)  # keep it visible in the console/journal too
     if proc.returncode == 0:
-        return 0, None
+        return ProgramResult(name, 0)
     lines = stderr.strip().splitlines()[-ERROR_TAIL_LINES:]
     if proc.returncode < 0 and not lines:
         lines = [f"Terminated by signal {-proc.returncode}"]
-    return proc.returncode, "\n".join(lines) or "(no error output)"
+    return ProgramResult(name, proc.returncode, "\n".join(lines) or "(no error output)")
