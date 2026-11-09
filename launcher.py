@@ -1,5 +1,7 @@
 """The launcher screen: program list, launching, and result display."""
 
+import math
+
 import pygame
 
 from controls import DOWN, SELECT, UP, Input, is_quit
@@ -9,6 +11,21 @@ BG_COLOR = (240, 240, 240)
 TEXT_COLOR = (10, 10, 10)
 MARGIN = 40
 SELECTION_ALPHA = 40  # opacity (0-255) of the box behind the selection
+DEPTH = 0.15  # how quickly rows shrink with distance from the selection
+
+
+def depth_scale(d):
+    """Size of a row d rows away from the centre, relative to the centre row."""
+    return 1 / (1 + DEPTH * abs(d))
+
+
+def depth_offset(d):
+    """Distance (in full-size rows) from the centre to a row d rows away.
+
+    This is the integral of depth_scale, so shrunken rows pack closer
+    together and positions move smoothly as the list scrolls.
+    """
+    return math.copysign(math.log1p(DEPTH * abs(d)) / DEPTH, d)
 
 
 def wrap_text(font, text, width):
@@ -43,6 +60,7 @@ class Launcher:
         self.scroll = 0.0  # list position in rows; animates towards selected
         self.result: ProgramResult | None = None  # set after a failed run
         self.input = Input()
+        self.name_surfaces: dict[str, pygame.Surface] = {}  # rendered names
 
     # Created in open_display() and recreated after every launched program.
     screen: pygame.Surface
@@ -58,6 +76,7 @@ class Launcher:
         pygame.display.set_caption("Launcher")
         pygame.mouse.set_visible(False)
         self.font = pygame.font.Font(None, self.config["font_size"])
+        self.name_surfaces.clear()
         self.input.open_joysticks()
         pygame.event.clear()
 
@@ -103,17 +122,31 @@ class Launcher:
 
     # -- drawing -----------------------------------------------------------
 
+    def name_surface(self, name):
+        surf = self.name_surfaces.get(name)
+        if surf is None:
+            surf = self.name_surfaces[name] = self.font.render(name, True, TEXT_COLOR)
+        return surf
+
     def draw_list(self):
         """Program list in the left half, selection row fixed at the vertical
-        centre, fading out towards the top and bottom edges."""
+        centre. Rows shrink with distance from the selection (towards the
+        left edge and the centre) for depth, and fade out towards the top
+        and bottom edges."""
         w, h = self.screen.get_size()
         half_h = h / 2
         line_h = self.font.get_linesize()
         box_x = MARGIN + line_h // 2  # room for the dashed guide line
         text_x = box_x + line_h // 4  # padding inside the selection box
 
+        def row_centre(d):
+            return half_h + depth_offset(d) * line_h
+
         def fade(centre):
             return 1 - abs(centre - half_h) / half_h
+
+        def visible(d):
+            return fade(row_centre(d)) > 0 and depth_scale(d) * line_h >= 1
 
         if not self.programs:
             msg = f"No programs found in {self.config['script_dir']}"
@@ -127,16 +160,16 @@ class Launcher:
         # Dashed vertical guide, one dash per row slot over the full height.
         # It scrolls with the list and shares its fade, so the fade stays
         # visible even when there are only a few programs.
-        dash = pygame.Surface((max(2, line_h // 16), round(line_h * 0.7)))
-        dash.fill(TEXT_COLOR)
+        dash_w = max(2, line_h // 16)
         offset = self.scroll % 1
-        rows = int(half_h // line_h) + 2
-        for k in range(-rows, rows + 1):
-            centre = half_h + (k - offset) * line_h
-            alpha = fade(centre)
-            if alpha > 0:
-                dash.set_alpha(round(255 * alpha))
+        for d, step in ((-offset, 1), (-offset - 1, -1)):  # downwards, upwards
+            while visible(d):
+                centre = row_centre(d)
+                dash = pygame.Surface((dash_w, max(1, round(line_h * 0.7 * depth_scale(d)))))
+                dash.fill(TEXT_COLOR)
+                dash.set_alpha(round(255 * fade(centre)))
                 self.screen.blit(dash, (MARGIN, centre - dash.get_height() / 2))
+                d += step
 
         # Faded box behind the selection, which always sits on the centre row.
         box = pygame.Surface((w // 2 - MARGIN - box_x, line_h))
@@ -145,13 +178,17 @@ class Launcher:
         self.screen.blit(box, (box_x, half_h - line_h / 2))
 
         for i, (name, _) in enumerate(self.programs):
-            centre = half_h + (i - self.scroll) * line_h
-            alpha = fade(centre)
-            if alpha <= 0:
+            d = i - self.scroll
+            if not visible(d):
                 continue
-            surf = self.font.render(name, True, TEXT_COLOR)
-            surf.set_alpha(round(255 * alpha))
-            self.screen.blit(surf, (text_x, centre - line_h / 2))
+            centre = row_centre(d)
+            surf = self.name_surface(name)
+            scale = depth_scale(d)
+            if scale < 0.999:
+                surf = pygame.transform.smoothscale_by(surf, scale)
+            surf.set_alpha(round(255 * fade(centre)))
+            # Left-aligned, so rows shrink towards the left edge.
+            self.screen.blit(surf, (text_x, centre - surf.get_height() / 2))
         self.screen.set_clip(None)
 
     def draw_result(self, result: ProgramResult):
