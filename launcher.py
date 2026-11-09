@@ -127,9 +127,10 @@ class Launcher:
             # drawing, just keeping the window responsive.
             result = run_program(name, self.config["python"], script,
                                  idle=self.idle, env=env)
+            # The window system hands focus back to this window, the next one
+            # down, when the program's window closes.
             pygame.event.clear()  # drop input meant for the program
             self.input.held.clear()
-            self.raise_window()
         self.programs = find_programs(self.config["script_dir"])
         self.selected = min(self.selected, max(len(self.programs) - 1, 0))
         self.scroll = float(self.selected)
@@ -144,14 +145,6 @@ class Launcher:
         for event in pygame.event.get():
             if event.type in (pygame.WINDOWEXPOSED, pygame.VIDEOEXPOSE):
                 pygame.display.flip()
-
-    def raise_window(self):
-        """Bring the launcher window back to the front after a program exits."""
-        try:
-            from pygame._sdl2.video import Window
-            Window.from_display_module().focus()
-        except Exception:  # not supported by every pygame build / driver
-            pass
 
     def fade_out(self):
         """Fade the screen to black (blocking) before handing it over."""
