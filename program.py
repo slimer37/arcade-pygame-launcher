@@ -6,6 +6,7 @@ import sys
 from dataclasses import dataclass
 
 ERROR_TAIL_LINES = 15
+ERROR_TAIL_CHARS = 2000  # also cap characters, in case of very long lines
 
 
 @dataclass(frozen=True)
@@ -61,4 +62,5 @@ def run_program(name, python, script) -> ProgramResult:
     lines = stderr.strip().splitlines()[-ERROR_TAIL_LINES:]
     if proc.returncode < 0 and not lines:
         lines = [f"Terminated by signal {-proc.returncode}"]
-    return ProgramResult(name, proc.returncode, "\n".join(lines) or "(no error output)")
+    error = "\n".join(lines)[-ERROR_TAIL_CHARS:]
+    return ProgramResult(name, proc.returncode, error or "(no error output)")

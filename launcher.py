@@ -42,13 +42,18 @@ def wrap_text(font, text, width):
                 continue
             if line:
                 out.append(line)
-            # Hard-break words that are wider than the line on their own.
+            # Hard-break words that are wider than the line on their own,
+            # binary-searching for the longest prefix that fits.
             while font.size(word)[0] > width and len(word) > 1:
-                cut = len(word) - 1
-                while cut > 1 and font.size(word[:cut])[0] > width:
-                    cut -= 1
-                out.append(word[:cut])
-                word = word[cut:]
+                lo, hi = 1, len(word) - 1
+                while lo < hi:
+                    mid = (lo + hi + 1) // 2
+                    if font.size(word[:mid])[0] <= width:
+                        lo = mid
+                    else:
+                        hi = mid - 1
+                out.append(word[:lo])
+                word = word[lo:]
             line = word
         out.append(line)
     return out
@@ -66,6 +71,7 @@ class Launcher:
         self.blackout = 1.0  # opacity of the black overlay; fades in on start
         self.blackout_target = 0.0  # update() moves blackout towards this
         self.clock = pygame.time.Clock()
+        self.result_cache: tuple[ProgramResult, list[str]] | None = None
 
     # Created in open_display() and recreated after every launched program.
     screen: pygame.Surface
@@ -82,6 +88,7 @@ class Launcher:
         pygame.mouse.set_visible(False)
         self.font = pygame.font.Font(None, self.config["font_size"])
         self.name_surfaces.clear()
+        self.result_cache = None  # depends on the font and screen size
         self.input.open_joysticks()
         pygame.event.clear()
 
@@ -216,13 +223,28 @@ class Launcher:
             self.screen.blit(surf, (text_x, centre - surf.get_height() / 2))
         self.screen.set_clip(None)
 
+    def result_lines(self, result: ProgramResult):
+        """Wrapped lines for the result panel, trimmed to fit the screen.
+        Computed once per result rather than every frame."""
+        if self.result_cache is not None and self.result_cache[0] is result:
+            return self.result_cache[1]
+        w, h = self.screen.get_size()
+        width = w // 2 - 2 * MARGIN
+        head = wrap_text(self.font, result.summary, width) + [""]
+        error = wrap_text(self.font, result.error or "", width)
+        tail = [""] + wrap_text(self.font, "Press any button to continue", width)
+        room = (h - 2 * MARGIN) // self.font.get_linesize() - len(head) - len(tail)
+        if len(error) > room:
+            # Keep the end of the error output, which is the most relevant.
+            error = ["..."] + error[len(error) - room + 1:] if room > 1 else []
+        lines = head + error + tail
+        self.result_cache = (result, lines)
+        return lines
+
     def draw_result(self, result: ProgramResult):
         """Exit code and error output in the right half."""
         w, h = self.screen.get_size()
-        width = w // 2 - 2 * MARGIN
-        lines = wrap_text(self.font, result.summary, width)
-        lines += [""] + wrap_text(self.font, result.error or "", width)
-        lines += [""] + wrap_text(self.font, "Press any button to continue", width)
+        lines = self.result_lines(result)
         line_h = self.font.get_linesize()
         y = max(MARGIN, (h - len(lines) * line_h) / 2)
         for line in lines:
