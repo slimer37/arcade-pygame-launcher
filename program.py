@@ -9,6 +9,7 @@ from dataclasses import dataclass
 ERROR_TAIL_LINES = 15
 ERROR_TAIL_CHARS = 2000  # also cap characters, in case of very long lines
 IDLE_INTERVAL = 0.1  # seconds between idle() calls while a program runs
+README_MAX_CHARS = 10000  # more than fits on screen anyway
 
 
 @dataclass(frozen=True)
@@ -30,8 +31,34 @@ class ProgramResult:
         return f"'{self.name}' exited with code {self.exit_code}"
 
 
-def find_programs(script_dir):
-    """Return a sorted list of (name, script_path).
+@dataclass(frozen=True)
+class Program:
+    """A launchable game: a folder with a main.py and optional README.md."""
+
+    name: str
+    script: str
+    readme: str | None = None  # contents of the folder's README.md, if any
+
+    @property
+    def description(self) -> str:
+        return self.readme or f"Play {self.name}"
+
+
+def read_readme(folder):
+    """Return the text of folder's README.md (any capitalisation), or None."""
+    for entry in os.listdir(folder):
+        path = os.path.join(folder, entry)
+        if entry.lower() == "readme.md" and os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    return f.read(README_MAX_CHARS).strip() or None
+            except OSError:
+                return None
+    return None
+
+
+def find_programs(script_dir) -> list[Program]:
+    """Return the programs in script_dir, sorted by name.
 
     A program is a sub-directory of script_dir that contains a ``main.py``;
     the directory name is the program's name. Anything else is ignored.
@@ -40,10 +67,11 @@ def find_programs(script_dir):
     if not os.path.isdir(script_dir):
         return programs
     for entry in os.listdir(script_dir):
-        script = os.path.join(script_dir, entry, "main.py")
+        folder = os.path.join(script_dir, entry)
+        script = os.path.join(folder, "main.py")
         if os.path.isfile(script):
-            programs.append((entry, script))
-    programs.sort(key=lambda p: p[0].lower())
+            programs.append(Program(entry, script, read_readme(folder)))
+    programs.sort(key=lambda p: p.name.lower())
     return programs
 
 

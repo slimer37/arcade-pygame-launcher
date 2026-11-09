@@ -6,7 +6,7 @@ import os
 import pygame
 
 from controls import DOWN, SELECT, UP, Input, is_quit
-from program import ProgramResult, find_programs, run_program
+from program import Program, ProgramResult, find_programs, run_program
 
 BG_COLOR = (240, 240, 240)
 TEXT_COLOR = (10, 10, 10)
@@ -65,6 +65,18 @@ def wrap_text(font, text, width):
     return out
 
 
+def fit_lines(lines, room, keep_end=False):
+    """Trim lines to at most room lines, marking the cut with "...".
+    Keeps the start, or the end if keep_end."""
+    if len(lines) <= room:
+        return lines
+    if room < 1:
+        return []
+    if keep_end:
+        return ["..."] + lines[len(lines) - room + 1:]
+    return lines[:room - 1] + ["..."]
+
+
 class Launcher:
     def __init__(self, config):
         self.config = config
@@ -78,6 +90,7 @@ class Launcher:
         self.blackout_target = 0.0  # update() moves blackout towards this
         self.clock = pygame.time.Clock()
         self.result_cache: tuple[ProgramResult, list[str]] | None = None
+        self.info_cache: dict[Program, list[str]] = {}  # wrapped descriptions
 
     # Created in open_display() and recreated after every launched program.
     screen: pygame.Surface
@@ -98,6 +111,7 @@ class Launcher:
         self.font = pygame.font.Font(None, self.config["font_size"])
         self.name_surfaces.clear()
         self.result_cache = None  # depends on the font and screen size
+        self.info_cache.clear()
         self.input.open_joysticks()
         pygame.event.clear()
 
@@ -112,7 +126,8 @@ class Launcher:
     def launch(self):
         if not self.programs:
             return
-        name, script = self.programs[self.selected]
+        program = self.programs[self.selected]
+        name, script = program.name, program.script
         self.fade_out()
         # Programs shouldn't inherit the launcher's no-minimise hint.
         env = {k: v for k, v in os.environ.items() if k != NO_MINIMIZE_HINT}
@@ -132,6 +147,7 @@ class Launcher:
             pygame.event.clear()  # drop input meant for the program
             self.input.held.clear()
         self.programs = find_programs(self.config["script_dir"])
+        self.info_cache.clear()
         self.selected = min(self.selected, max(len(self.programs) - 1, 0))
         self.scroll = float(self.selected)
         self.blackout, self.blackout_target = 1.0, 0.0  # fade back in
@@ -237,12 +253,12 @@ class Launcher:
         box.set_alpha(SELECTION_ALPHA)
         self.screen.blit(box, (box_x, half_h - line_h / 2))
 
-        for i, (name, _) in enumerate(self.programs):
+        for i, program in enumerate(self.programs):
             d = i - self.scroll
             if not visible(d):
                 continue
             centre = row_centre(d)
-            surf = self.name_surface(name)
+            surf = self.name_surface(program.name)
             scale = depth_scale(d)
             if scale < 0.999:
                 surf = pygame.transform.smoothscale_by(surf, scale)
@@ -262,10 +278,8 @@ class Launcher:
         error = wrap_text(self.font, result.error or "", width)
         tail = [""] + wrap_text(self.font, "Press any button to continue", width)
         room = (h - 2 * MARGIN) // self.font.get_linesize() - len(head) - len(tail)
-        if len(error) > room:
-            # Keep the end of the error output, which is the most relevant.
-            error = ["..."] + error[len(error) - room + 1:] if room > 1 else []
-        lines = head + error + tail
+        # Keep the end of the error output, which is the most relevant.
+        lines = head + fit_lines(error, room, keep_end=True) + tail
         self.result_cache = (result, lines)
         return lines
 
@@ -279,11 +293,34 @@ class Launcher:
             self.screen.blit(self.font.render(line, True, TEXT_COLOR), (w // 2 + MARGIN, y))
             y += line_h
 
+    def info_lines(self, program: Program):
+        """Wrapped description (README.md or "Play <name>") for the info
+        panel, trimmed to fit the screen. Cached per program."""
+        lines = self.info_cache.get(program)
+        if lines is None:
+            w, h = self.screen.get_size()
+            room = (h - 2 * MARGIN) // self.font.get_linesize()
+            lines = fit_lines(wrap_text(self.font, program.description, w // 2 - 2 * MARGIN), room)
+            self.info_cache[program] = lines
+        return lines
+
+    def draw_info(self, program: Program):
+        """Description of the selected program in the right half."""
+        w, h = self.screen.get_size()
+        lines = self.info_lines(program)
+        line_h = self.font.get_linesize()
+        y = max(MARGIN, (h - len(lines) * line_h) / 2)
+        for line in lines:
+            self.screen.blit(self.font.render(line, True, TEXT_COLOR), (w // 2 + MARGIN, y))
+            y += line_h
+
     def draw(self):
         self.screen.fill(BG_COLOR)
         self.draw_list()
         if self.result is not None:
             self.draw_result(self.result)
+        elif self.programs:
+            self.draw_info(self.programs[self.selected])
         if self.blackout > 0:
             overlay = pygame.Surface(self.screen.get_size())  # starts black
             overlay.set_alpha(round(255 * self.blackout))
