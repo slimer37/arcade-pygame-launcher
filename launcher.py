@@ -1,6 +1,7 @@
 """The launcher screen: program list, launching, and result display."""
 
 import math
+import os
 
 import pygame
 
@@ -14,6 +15,11 @@ SELECTION_ALPHA = 40  # opacity (0-255) of the box behind the selection
 DEPTH = 0.15  # how quickly rows shrink with distance from the selection
 FADE_TIME = 0.4  # seconds to fade to black before launching / back after
 FPS = 60
+
+NO_MINIMIZE_HINT = "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS"
+# Video drivers without a window system, where only one process can own the
+# screen; the launcher has to release it while a program runs.
+EXCLUSIVE_DRIVERS = {"kmsdrm", "kmsdrm_legacy", "fbcon", "directfb"}
 
 
 def depth_scale(d):
@@ -80,6 +86,9 @@ class Launcher:
     # -- display lifecycle -------------------------------------------------
 
     def open_display(self):
+        # Keep the fullscreen launcher window up (black) behind a running
+        # program instead of letting SDL minimise it when focus moves away.
+        os.environ[NO_MINIMIZE_HINT] = "0"
         pygame.display.init()
         pygame.joystick.init()
         pygame.font.init()
@@ -105,11 +114,22 @@ class Launcher:
             return
         name, script = self.programs[self.selected]
         self.fade_out()
-        # The launcher draws nothing while the program runs: it gives up the
-        # display and blocks until the program exits.
-        self.close_display()
-        result = run_program(name, self.config["python"], script)
-        self.open_display()
+        # Programs shouldn't inherit the launcher's no-minimise hint.
+        env = {k: v for k, v in os.environ.items() if k != NO_MINIMIZE_HINT}
+        if pygame.display.get_driver() in EXCLUSIVE_DRIVERS:
+            # No window system: the program can't open the screen while we
+            # hold it, so release it and block until the program exits.
+            self.close_display()
+            result = run_program(name, self.config["python"], script, env=env)
+            self.open_display()
+        else:
+            # Leave the black window up underneath the program, paused: no
+            # drawing, just keeping the window responsive.
+            result = run_program(name, self.config["python"], script,
+                                 idle=self.idle, env=env)
+            pygame.event.clear()  # drop input meant for the program
+            self.input.held.clear()
+            self.raise_window()
         self.programs = find_programs(self.config["script_dir"])
         self.selected = min(self.selected, max(len(self.programs) - 1, 0))
         self.scroll = float(self.selected)
@@ -117,6 +137,21 @@ class Launcher:
         self.clock.tick()  # don't count the program's run time as a frame
         if result.failed:
             self.result = result
+
+    def idle(self):
+        """Called while a program runs: handle window-system events without
+        drawing, only re-presenting the black frame if the window is exposed."""
+        for event in pygame.event.get():
+            if event.type in (pygame.WINDOWEXPOSED, pygame.VIDEOEXPOSE):
+                pygame.display.flip()
+
+    def raise_window(self):
+        """Bring the launcher window back to the front after a program exits."""
+        try:
+            from pygame._sdl2.video import Window
+            Window.from_display_module().focus()
+        except Exception:  # not supported by every pygame build / driver
+            pass
 
     def fade_out(self):
         """Fade the screen to black (blocking) before handing it over."""

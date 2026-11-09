@@ -3,10 +3,12 @@
 import os
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 
 ERROR_TAIL_LINES = 15
 ERROR_TAIL_CHARS = 2000  # also cap characters, in case of very long lines
+IDLE_INTERVAL = 0.1  # seconds between idle() calls while a program runs
 
 
 @dataclass(frozen=True)
@@ -47,14 +49,28 @@ def find_programs(script_dir):
     return programs
 
 
-def run_program(name, python, script) -> ProgramResult:
-    """Run a script to completion and report how it ended."""
+def run_program(name, python, script, idle=None, env=None) -> ProgramResult:
+    """Run a script to completion and report how it ended.
+
+    ``idle`` (if given) is called roughly every IDLE_INTERVAL seconds while
+    the program runs, e.g. to keep the launcher's window responsive.
+    """
     try:
-        proc = subprocess.run([python, script], cwd=os.path.dirname(script),
-                              stderr=subprocess.PIPE, check=False)
+        proc = subprocess.Popen([python, script], cwd=os.path.dirname(script),
+                                stderr=subprocess.PIPE, env=env)
     except OSError as exc:
         return ProgramResult(name, None, f"Could not start program: {exc}")
-    stderr = proc.stderr.decode(errors="replace")
+    # Collect stderr on a thread so a chatty program can't fill the pipe and
+    # stall while this thread is busy calling idle().
+    output = []
+    reader = threading.Thread(target=lambda: output.append(proc.communicate()[1]),
+                              daemon=True)
+    reader.start()
+    while reader.is_alive():
+        if idle is not None:
+            idle()
+        reader.join(IDLE_INTERVAL)
+    stderr = output[0].decode(errors="replace")
     if stderr:
         sys.stderr.write(stderr)  # keep it visible in the console/journal too
     if proc.returncode == 0:
