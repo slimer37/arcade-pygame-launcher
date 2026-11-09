@@ -33,18 +33,16 @@ class ProgramResult:
 def find_programs(script_dir):
     """Return a sorted list of (name, script_path).
 
-    A program is either a top-level ``*.py`` file or a sub-directory that
-    contains a ``main.py`` (for games that ship with their own assets).
+    A program is a sub-directory of script_dir that contains a ``main.py``;
+    the directory name is the program's name. Anything else is ignored.
     """
     programs = []
     if not os.path.isdir(script_dir):
         return programs
     for entry in os.listdir(script_dir):
-        path = os.path.join(script_dir, entry)
-        if os.path.isfile(path) and entry.endswith(".py"):
-            programs.append((entry[:-3], path))
-        elif os.path.isdir(path) and os.path.isfile(os.path.join(path, "main.py")):
-            programs.append((entry, os.path.join(path, "main.py")))
+        script = os.path.join(script_dir, entry, "main.py")
+        if os.path.isfile(script):
+            programs.append((entry, script))
     programs.sort(key=lambda p: p[0].lower())
     return programs
 
