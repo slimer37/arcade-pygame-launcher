@@ -14,8 +14,8 @@ import pygame
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.ini")
 
-BG_COLOR = (255, 255, 255)
-TEXT_COLOR = (0, 0, 0)
+BG_COLOR = (240, 240, 240)
+TEXT_COLOR = (10, 10, 10)
 MARGIN = 40
 
 AXIS_THRESHOLD = 0.5
