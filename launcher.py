@@ -12,6 +12,8 @@ TEXT_COLOR = (10, 10, 10)
 MARGIN = 40
 SELECTION_ALPHA = 40  # opacity (0-255) of the box behind the selection
 DEPTH = 0.15  # how quickly rows shrink with distance from the selection
+FADE_TIME = 0.4  # seconds to fade to black before launching / back after
+FPS = 60
 
 
 def depth_scale(d):
@@ -61,6 +63,9 @@ class Launcher:
         self.result: ProgramResult | None = None  # set after a failed run
         self.input = Input()
         self.name_surfaces: dict[str, pygame.Surface] = {}  # rendered names
+        self.blackout = 1.0  # opacity of the black overlay; fades in on start
+        self.blackout_target = 0.0  # update() moves blackout towards this
+        self.clock = pygame.time.Clock()
 
     # Created in open_display() and recreated after every launched program.
     screen: pygame.Surface
@@ -92,14 +97,28 @@ class Launcher:
         if not self.programs:
             return
         name, script = self.programs[self.selected]
+        self.fade_out()
+        # The launcher draws nothing while the program runs: it gives up the
+        # display and blocks until the program exits.
         self.close_display()
         result = run_program(name, self.config["python"], script)
         self.open_display()
         self.programs = find_programs(self.config["script_dir"])
         self.selected = min(self.selected, max(len(self.programs) - 1, 0))
         self.scroll = float(self.selected)
+        self.blackout, self.blackout_target = 1.0, 0.0  # fade back in
+        self.clock.tick()  # don't count the program's run time as a frame
         if result.failed:
             self.result = result
+
+    def fade_out(self):
+        """Fade the screen to black (blocking) before handing it over."""
+        self.blackout_target = 1.0
+        while self.blackout < 1:
+            dt = self.clock.tick(FPS) / 1000
+            pygame.event.pump()  # stay responsive to the OS; input is ignored
+            self.update(dt)
+            self.draw()
 
     def act(self, action):
         if self.result is not None:
@@ -114,7 +133,13 @@ class Launcher:
             self.launch()
 
     def update(self, dt):
-        """Slide the list towards the selection at scroll_speed rows/sec."""
+        """Slide the list towards the selection at scroll_speed rows/sec,
+        and fade the black overlay towards its target."""
+        fade_step = dt / FADE_TIME
+        if self.blackout < self.blackout_target:
+            self.blackout = min(self.blackout + fade_step, self.blackout_target)
+        else:
+            self.blackout = max(self.blackout - fade_step, self.blackout_target)
         step = self.config["scroll_speed"] * dt
         diff = self.selected - self.scroll
         self.scroll = float(self.selected) if abs(diff) <= step else \
@@ -209,15 +234,18 @@ class Launcher:
         self.draw_list()
         if self.result is not None:
             self.draw_result(self.result)
+        if self.blackout > 0:
+            overlay = pygame.Surface(self.screen.get_size())  # starts black
+            overlay.set_alpha(round(255 * self.blackout))
+            self.screen.blit(overlay, (0, 0))
         pygame.display.flip()
 
     # -- main loop ---------------------------------------------------------
 
     def run(self):
         self.open_display()
-        clock = pygame.time.Clock()
         while True:
-            dt = clock.tick(60) / 1000
+            dt = self.clock.tick(FPS) / 1000
             actions = []
             for event in pygame.event.get():
                 if is_quit(event):
