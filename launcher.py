@@ -82,7 +82,7 @@ def fit_lines(lines, room, keep_end=False):
 class Launcher:
     def __init__(self, config):
         self.config = config
-        self.programs = find_programs(config["script_dir"])
+        self.programs = find_programs(config["games_dir"])
         self.selected = 0
         self.scroll = 0.0  # list position in rows; animates towards selected
         self.result: ProgramResult | None = None  # set after a failed run
@@ -150,7 +150,7 @@ class Launcher:
             # down, when the program's window closes.
             pygame.event.clear()  # drop input meant for the program
             self.input.held.clear()
-        self.programs = find_programs(self.config["script_dir"])
+        self.programs = find_programs(self.config["games_dir"])
         self.info_cache.clear()
         self.selected = min(self.selected, max(len(self.programs) - 1, 0))
         self.scroll = float(self.selected)
@@ -229,7 +229,7 @@ class Launcher:
             return fade(row_centre(d)) > 0 and depth_scale(d) * line_h >= 1
 
         if not self.programs:
-            msg = f"No programs found in {self.config['script_dir']}"
+            msg = f"No programs found in {self.config['games_dir']}"
             for i, line in enumerate(wrap_text(self.font, msg, w // 2 - 2 * MARGIN)):
                 self.screen.blit(self.font.render(line, True, TEXT_COLOR),
                                  (MARGIN, half_h - line_h / 2 + i * line_h))
