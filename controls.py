@@ -16,15 +16,9 @@ UP, DOWN, SELECT = "up", "down", "select"
 
 
 def is_quit(event):
-    """Quitting is keyboard-only: Escape, Alt+F4, or the window-close event."""
-    if event.type == pygame.QUIT:
-        return True
-    if event.type == pygame.KEYDOWN:
-        if event.key == pygame.K_ESCAPE:
-            return True
-        if event.key == pygame.K_F4 and event.mod & pygame.KMOD_ALT:
-            return True
-    return False
+    """Quitting is keyboard-only: Escape, or the OS quit event (e.g. Alt+F4)."""
+    return event.type == pygame.QUIT or (
+        event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE)
 
 
 class Input:

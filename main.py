@@ -1,7 +1,7 @@
 """Fullscreen pygame launcher for other pygame programs.
 
 Navigation: joystick / arcade controls (or keyboard equivalents).
-Exit: keyboard only (Escape, Alt+F4 / window close).
+Exit: keyboard only (Escape, or the OS quit event such as Alt+F4).
 """
 
 import configparser
