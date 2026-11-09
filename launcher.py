@@ -8,6 +8,7 @@ from program import ProgramResult, find_programs, run_program
 BG_COLOR = (240, 240, 240)
 TEXT_COLOR = (10, 10, 10)
 MARGIN = 40
+SELECTION_ALPHA = 40  # opacity (0-255) of the box behind the selection
 
 
 def wrap_text(font, text, width):
@@ -108,9 +109,8 @@ class Launcher:
         w, h = self.screen.get_size()
         half_h = h / 2
         line_h = self.font.get_linesize()
-        marker = self.font.render("> ", True, TEXT_COLOR)
-        marker_x = MARGIN + line_h // 2  # room for the dashed guide line
-        text_x = marker_x + marker.get_width()
+        box_x = MARGIN + line_h // 2  # room for the dashed guide line
+        text_x = box_x + line_h // 4  # padding inside the selection box
 
         def fade(centre):
             return 1 - abs(centre - half_h) / half_h
@@ -138,7 +138,12 @@ class Launcher:
                 dash.set_alpha(round(255 * alpha))
                 self.screen.blit(dash, (MARGIN, centre - dash.get_height() / 2))
 
-        self.screen.blit(marker, (marker_x, half_h - line_h / 2))
+        # Faded box behind the selection, which always sits on the centre row.
+        box = pygame.Surface((w // 2 - MARGIN - box_x, line_h))
+        box.fill(TEXT_COLOR)
+        box.set_alpha(SELECTION_ALPHA)
+        self.screen.blit(box, (box_x, half_h - line_h / 2))
+
         for i, (name, _) in enumerate(self.programs):
             centre = half_h + (i - self.scroll) * line_h
             alpha = fade(centre)
