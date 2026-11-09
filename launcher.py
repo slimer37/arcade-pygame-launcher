@@ -97,6 +97,7 @@ class Launcher:
     # Created in open_display() and recreated after every launched program.
     screen: pygame.Surface
     font: pygame.font.Font
+    description_font: pygame.font.Font
     error_font: pygame.font.Font
 
     # -- display lifecycle -------------------------------------------------
@@ -112,6 +113,7 @@ class Launcher:
         pygame.display.set_caption("Launcher")
         pygame.mouse.set_visible(False)
         self.font = pygame.font.Font(None, self.config["font_size"])
+        self.description_font = pygame.font.Font(None, self.config["description_font_size"])
         self.error_font = pygame.font.Font(None, self.config["error_font_size"])
         self.name_surfaces.clear()
         self.result_cache = None  # depends on the font and screen size
@@ -313,8 +315,9 @@ class Launcher:
         lines = self.info_cache.get(key)
         if lines is None:
             width = self.screen.get_width() // 2 - 2 * MARGIN
-            room = int(height // self.font.get_linesize())
-            lines = fit_lines(wrap_text(self.font, program.description, width), room)
+            font = self.description_font
+            room = int(height // font.get_linesize())
+            lines = fit_lines(wrap_text(font, program.description, width), room)
             self.info_cache[key] = lines
         return lines
 
@@ -325,8 +328,8 @@ class Launcher:
         h = self.screen.get_height()
         top = MARGIN if self.result is None else self.error_box()[1] + MARGIN / 2
         lines = self.info_lines(program, h - 2 * top)
-        y = max(top, (h - len(lines) * self.font.get_linesize()) / 2)
-        self.draw_lines(lines, self.font, TEXT_COLOR, y)
+        y = max(top, (h - len(lines) * self.description_font.get_linesize()) / 2)
+        self.draw_lines(lines, self.description_font, TEXT_COLOR, y)
 
     def draw(self):
         self.screen.fill(BG_COLOR)

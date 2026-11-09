@@ -38,6 +38,7 @@ def load_config(games_dir):
         "games_dir": os.path.abspath(games_dir),
         "python": sec.get("python", "") or sys.executable,
         "font_size": int(sec.get("font_size", 16)),
+        "description_font_size": int(sec.get("description_font_size", 16)),
         "error_font_size": int(sec.get("error_font_size", 16)),
         "scroll_speed": float(sec.get("scroll_speed", 10)),
     }
